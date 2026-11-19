@@ -546,6 +546,7 @@ function clearPreview() {
 }
 
 
+
 function togglePreview() {
 
     if (!selectedButton || isPlayMode) return;
@@ -570,8 +571,8 @@ function togglePreview() {
 
     selectedButton.computeWorldMatrix(true);
 
-    const buttonPosition =
-        selectedButton.getAbsolutePosition();
+    const buttonWorld = selectedButton.getWorldMatrix().clone();
+    const buttonPosition = selectedButton.getAbsolutePosition();
 
     selectedButton.metadata.objects.forEach((obj, i) => {
 
@@ -590,9 +591,21 @@ function togglePreview() {
         const r = obj.rot || { x: 0, y: 0, z: 0 };
         const s = obj.scale || { x: 1, y: 1, z: 1 };
 
-        clone.position = buttonPosition.add(
-            new BABYLON.Vector3(p.x, p.y, p.z)
-        );
+        if (obj.positionSpace === "button-local") {
+
+            clone.position = BABYLON.Vector3.TransformCoordinates(
+                new BABYLON.Vector3(p.x, p.y, p.z),
+                buttonWorld
+            );
+
+        } else {
+
+            // Oude opgeslagen posities behouden
+            clone.position = buttonPosition.add(
+                new BABYLON.Vector3(p.x, p.y, p.z)
+            );
+
+        }
 
         clone.rotation.set(r.x, r.y, r.z);
         clone.scaling.set(s.x, s.y, s.z);
@@ -624,35 +637,43 @@ function togglePreview() {
 // PREVIEW TRANSFORMATIES OPSLAAN
 // ============================================
 
+
 function savePreviewTransforms() {
 
     if (!previewMode || !selectedButton) return;
 
     selectedButton.computeWorldMatrix(true);
 
-    const buttonPosition =
-        selectedButton.getAbsolutePosition();
+    const buttonWorld = selectedButton.getWorldMatrix().clone();
+    const inverseButtonWorld = buttonWorld.clone();
+
+    inverseButtonWorld.invert();
 
     previewMeshes.forEach(mesh => {
 
         if (!mesh || mesh.isDisposed()) return;
 
         const index = mesh.metadata.objIndex;
-
         const obj = selectedButton.metadata.objects[index];
 
         if (!obj) return;
 
         mesh.computeWorldMatrix(true);
 
-        const relative =
-            mesh.getAbsolutePosition().subtract(buttonPosition);
+        // Wereldpositie omzetten naar positie ten opzichte
+        // van de tycoon-knop
+        const localPosition = BABYLON.Vector3.TransformCoordinates(
+            mesh.getAbsolutePosition(),
+            inverseButtonWorld
+        );
 
         obj.pos = {
-            x: relative.x,
-            y: relative.y,
-            z: relative.z
+            x: localPosition.x,
+            y: localPosition.y,
+            z: localPosition.z
         };
+
+        obj.positionSpace = "button-local";
 
         obj.rot = {
             x: mesh.rotation.x,
@@ -1220,35 +1241,29 @@ function spawnWithTransition(mesh, transition) {
 // TYCOON BUTTON KOPEN
 // ============================================
 
+
 function tryBuy(button) {
 
     if (!isPlayMode) return;
-
     if (button.metadata.bought) return;
 
     if (money < button.metadata.price) return;
 
     money -= button.metadata.price;
-
     button.metadata.bought = true;
-
     button.setEnabled(false);
 
     // Priority activator
     if (button.metadata.isPriorityActivator) {
 
-        const target = parseInt(
-            button.metadata.activatorTarget
-        );
+        const target = parseInt(button.metadata.activatorTarget);
 
         if (!isNaN(target)) {
 
             const oldPriority = currentPriority;
 
             currentPriority = target;
-
             showCurrentPriority();
-
             currentPriority = oldPriority;
 
         }
@@ -1262,14 +1277,12 @@ function tryBuy(button) {
     ) {
 
         const targetButton = tycoonButtons.find(btn =>
-            btn.metadata.buttonID ===
-            button.metadata.activatorTarget
+            btn.metadata.buttonID === button.metadata.activatorTarget
         );
 
         if (targetButton) {
 
             targetButton.metadata.forceShow = true;
-
             targetButton.setEnabled(true);
 
             updateButtonColors();
@@ -1279,7 +1292,7 @@ function tryBuy(button) {
     }
 
     // Objecten spawnen
-    button.metadata.objects.forEach((obj, index) => {
+    (button.metadata.objects || []).forEach((obj, index) => {
 
         const asset = objectLibrary[obj.id];
 
@@ -1293,13 +1306,22 @@ function tryBuy(button) {
 
         button.computeWorldMatrix(true);
 
-        clone.position = button.getAbsolutePosition().add(
-            new BABYLON.Vector3(
-                obj.pos?.x ?? 0,
-                obj.pos?.y ?? 0,
-                obj.pos?.z ?? 0
-            )
-        );
+        const p = obj.pos || { x: 0, y: 0, z: 0 };
+
+        if (obj.positionSpace === "button-local") {
+
+            clone.position = BABYLON.Vector3.TransformCoordinates(
+                new BABYLON.Vector3(p.x, p.y, p.z),
+                button.getWorldMatrix()
+            );
+
+        } else {
+
+            clone.position = button.getAbsolutePosition().add(
+                new BABYLON.Vector3(p.x, p.y, p.z)
+            );
+
+        }
 
         clone.rotation = new BABYLON.Vector3(
             obj.rot?.x || 0,
@@ -1340,7 +1362,6 @@ function tryBuy(button) {
     }
 
     updateMoneyDisplay();
-
     saveProject();
 
 }
@@ -2075,6 +2096,14 @@ async function loadProject() {
             bd.pos || [0, 0, 0]
         );
 
+        btn.rotation = BABYLON.Vector3.FromArray(
+            bd.rotation || [0, 0, 0]
+        );
+
+        btn.scaling = BABYLON.Vector3.FromArray(
+            bd.scaling || [1, 1, 1]
+        );
+
         });
 
         // Vrije objecten herstellen
@@ -2210,13 +2239,7 @@ async function loadProject() {
                             scene
                         );
 
-                        const importedRoots = result.meshes.filter(mesh =>
-                            !mesh.parent || !result.meshes.includes(mesh.parent)
-                        );
-
-                        importedRoots.forEach(mesh => {
-                            mesh.parent = root;
-                        });
+                        attachImportedModelHierarchy(root, result);
 
                         root.setEnabled(false);
 
@@ -2289,6 +2312,28 @@ document.body.appendChild(fileInput);
 
 let currentImportIndex = null;
 
+
+function attachImportedModelHierarchy(root, result) {
+
+    // Zowel meshes als TransformNodes meenemen.
+    // Zo blijft de volledige GLB-hiërarchie behouden.
+    const importedNodes = new Set([
+        ...(result.transformNodes || []),
+        ...(result.meshes || [])
+    ]);
+
+    importedNodes.forEach(node => {
+
+        // Alleen de bovenste onderdelen aan onze nieuwe root hangen.
+        // De onderlinge hiërarchie blijft intact.
+        if (!node.parent || !importedNodes.has(node.parent)) {
+            node.parent = root;
+        }
+
+    });
+
+}
+
 document.addEventListener("click", e => {
 
     if (e.target.classList.contains("choose-obj")) {
@@ -2303,6 +2348,7 @@ document.addEventListener("click", e => {
     }
 
 });
+
 
 fileInput.onchange = async e => {
 
@@ -2328,11 +2374,9 @@ fileInput.onchange = async e => {
 
     try {
 
-        // Bestandstype bepalen
         const extension =
             "." + file.name.split(".").pop().toLowerCase();
 
-        // Model importeren
         const result = await BABYLON.SceneLoader.ImportMeshAsync(
             "",
             url,
@@ -2346,7 +2390,6 @@ fileInput.onchange = async e => {
             throw new Error("Het bestand bevat geen 3D-meshes.");
         }
 
-        // Unieke opslaglocatie voor dit model
         const fileKey =
             projectId +
             "_button_model_" +
@@ -2354,28 +2397,18 @@ fileInput.onchange = async e => {
             "_" +
             Date.now();
 
-        // Modelbestand opslaan
         await storeFreeObject(fileKey, file);
 
-        // Hoofdroot aanmaken
         const root = new BABYLON.TransformNode(
             "imported_" + id,
             scene
         );
 
-        // Modelhiërarchie behouden
-        const importedRoots = result.meshes.filter(mesh =>
-            !mesh.parent || !result.meshes.includes(mesh.parent)
-        );
+        // Volledige modelhiërarchie behouden
+        attachImportedModelHierarchy(root, result);
 
-        importedRoots.forEach(mesh => {
-            mesh.parent = root;
-        });
-
-        // Origineel verbergen
         root.setEnabled(false);
 
-        // Model registreren
         objectLibrary[id] = {
             mesh: root,
             meshes: [root],
@@ -2383,13 +2416,13 @@ fileInput.onchange = async e => {
             animationGroups: result.animationGroups || []
         };
 
-        // Model koppelen aan de knop
         row.id = id;
         row.fileKey = fileKey;
         row.fileName = file.name;
 
         refreshInspector();
 
+        saveProject();
         commitHistory();
 
         console.log("Model geïmporteerd:", id);
@@ -2409,7 +2442,6 @@ fileInput.onchange = async e => {
         URL.revokeObjectURL(url);
 
         fileInput.value = "";
-
         currentImportIndex = null;
 
     }

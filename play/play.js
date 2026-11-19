@@ -331,6 +331,7 @@ window.addEventListener("keydown", e => {
 // TYCOON KNOPPEN
 // ============================================
 
+
 function createTycoonButton(data) {
 
     const btn = BABYLON.MeshBuilder.CreateCylinder(
@@ -345,6 +346,15 @@ function createTycoonButton(data) {
 
     btn.position = BABYLON.Vector3.FromArray(
         data.pos || [0, 0, 0]
+    );
+
+    // Ook de opgeslagen draaiing en schaal herstellen
+    btn.rotation = BABYLON.Vector3.FromArray(
+        data.rotation || [0, 0, 0]
+    );
+
+    btn.scaling = BABYLON.Vector3.FromArray(
+        data.scaling || [1, 1, 1]
     );
 
     btn.metadata = {
@@ -400,6 +410,25 @@ function createTycoonButton(data) {
 // OBJECTEN LADEN
 // ============================================
 
+
+function attachImportedModelHierarchy(root, result) {
+
+    const importedNodes = new Set([
+        ...(result.transformNodes || []),
+        ...(result.meshes || [])
+    ]);
+
+    importedNodes.forEach(node => {
+
+        if (!node.parent || !importedNodes.has(node.parent)) {
+            node.parent = root;
+        }
+
+    });
+
+}
+
+
 async function loadButtonAssets() {
 
     for (const button of tycoonButtons) {
@@ -420,7 +449,10 @@ async function loadButtonAssets() {
 
                 const file = await getFreeObject(obj.fileKey);
 
-                if (!file) continue;
+                if (!file) {
+                    console.warn("Modelbestand niet gevonden:", obj.id);
+                    continue;
+                }
 
                 const url = URL.createObjectURL(file);
 
@@ -443,13 +475,8 @@ async function loadButtonAssets() {
                         scene
                     );
 
-                    result.meshes.forEach(mesh => {
-
-                        if (!mesh.parent) {
-                            mesh.parent = root;
-                        }
-
-                    });
+                    // Volledige GLB-hiërarchie behouden
+                    attachImportedModelHierarchy(root, result);
 
                     root.setEnabled(false);
 
@@ -680,6 +707,7 @@ function updateButtonColors() {
 // KOPEN
 // ============================================
 
+
 function tryBuy(button) {
 
     if (!button || button.metadata.bought) return;
@@ -694,11 +722,9 @@ function tryBuy(button) {
     money -= price;
 
     button.metadata.bought = true;
-
     button.setEnabled(false);
 
     // Priority activator
-
     if (button.metadata.isPriorityActivator) {
 
         const target = parseInt(
@@ -710,9 +736,7 @@ function tryBuy(button) {
             const oldPriority = currentPriority;
 
             currentPriority = target;
-
             showCurrentPriority();
-
             currentPriority = oldPriority;
 
         }
@@ -720,7 +744,6 @@ function tryBuy(button) {
     }
 
     // ID activator
-
     if (
         button.metadata.isIDActivator &&
         button.metadata.activatorTarget
@@ -734,7 +757,6 @@ function tryBuy(button) {
         if (targetButton) {
 
             targetButton.metadata.forceShow = true;
-
             targetButton.setEnabled(true);
 
             updateButtonColors();
@@ -744,7 +766,6 @@ function tryBuy(button) {
     }
 
     // Objecten spawnen
-
     (button.metadata.objects || []).forEach((obj, index) => {
 
         const asset = objectLibrary[obj.id];
@@ -756,15 +777,26 @@ function tryBuy(button) {
         );
 
         if (!clone) return;
+
         button.computeWorldMatrix(true);
 
-        clone.position = button.getAbsolutePosition().add(
-            new BABYLON.Vector3(
-                obj.pos?.x ?? 0,
-                obj.pos?.y ?? 0,
-                obj.pos?.z ?? 0
-            )
-        );
+        const p = obj.pos || { x: 0, y: 0, z: 0 };
+
+        if (obj.positionSpace === "button-local") {
+
+            clone.position = BABYLON.Vector3.TransformCoordinates(
+                new BABYLON.Vector3(p.x, p.y, p.z),
+                button.getWorldMatrix()
+            );
+
+        } else {
+
+            // Oude opgeslagen posities behouden
+            clone.position = button.getAbsolutePosition().add(
+                new BABYLON.Vector3(p.x, p.y, p.z)
+            );
+
+        }
 
         clone.rotation = new BABYLON.Vector3(
             obj.rot?.x || 0,
@@ -787,6 +819,7 @@ function tryBuy(button) {
         clone.getChildMeshes(false).forEach(mesh => {
             mesh.checkCollisions = true;
         });
+
         clone.checkCollisions = true;
 
         spawnedObjects.push(clone);
@@ -794,7 +827,6 @@ function tryBuy(button) {
     });
 
     // Volgende priority
-
     const remaining = tycoonButtons.some(btn =>
         !btn.metadata.bought &&
         (
@@ -812,7 +844,6 @@ function tryBuy(button) {
     }
 
     updateMoneyDisplay();
-
     updateButtonColors();
 
 }
