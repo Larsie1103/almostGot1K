@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tycoon Maker - Editor</title>
+
+    <link rel="stylesheet" href="style.css">
+
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+</head>
+
+<body>
+    <canvas id="renderCanvas"></canvas>
+
+    <div id="money-display">
+        💰 Geld: 100
+    </div>
+
+    <div id="inspector" class="inspector">
+        <h2>Inspector</h2>
+        <hr>
+
+        <div id="object-list"></div>
+
+        <div class="row-buttons">
+            <button id="add-row">+</button>
+            <button id="remove-row">🗑️</button>
+        </div>
+
+        <hr>
+
+        <div class="setting">
+            <button id="place-button">
+                + Plaats Tycoon Knop
+            </button>
+
+            <label style="display:flex;align-items:center;gap:8px;margin:10px 0;font-size:14px;">
+                <input type="checkbox" id="floor-as-object">
+                Maak de vloer een object
+            </label>
+
+            <label for="starting-budget">Starting budget</label>
+            <input
+                type="number"
+                id="starting-budget"
+                value="100"
+                min="0"
+            >
+        </div>
+    </div>
+    <script src="main.js"></script>
+</body>
+</html>
