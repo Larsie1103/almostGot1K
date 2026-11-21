@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tycoon Maker - UI Editor</title>
+    <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+    <div id="topbar">
+        <button id="back-button">← Terug</button>
+        <h2>Tycoon Maker - UI Editor</h2>
+        <label class="top-setting">
+            UI naam
+            <input id="ui-name" type="text" value="Nieuwe UI">
+        </label>
+        <label class="top-setting">
+            Shortcut
+            <input id="ui-shortcut" type="text" maxlength="1" placeholder="Geen">
+        </label>
+        <span id="save-status">Opgeslagen</span>
+    </div>
+
+    <div id="main">
+        <aside id="sidebar">
+            <h3>ELEMENTEN</h3>
+            <div class="tool-item" draggable="true" id="cube-tool">
+                <div class="tool-preview"></div>
+                Kubus
+            </div>
+            <div class="tool-item" draggable="true" id="button-tool">
+                <div class="button-preview">Knop</div>
+                UI-knop
+            </div>
+            <div class="tool-item" draggable="true" id="text-tool">
+                <div class="tool-preview">T</div>
+                Tekst
+            </div>
+        </aside>
+
+        <main id="workspace-area">
+            <div id="workspace">
+                <div id="workspace-label">UI Workspace</div>
+            </div>
+        </main>
+
+        <aside id="right-panel">
+            <h3>EIGENSCHAPPEN</h3>
+            <div id="empty-selection">
+                Selecteer een element om de eigenschappen te bekijken.
+            </div>
+            <div id="properties" hidden>
+                <div class="property">
+                    Breedte
+                    <input id="width-input" type="number" min="10">
+                </div>
+                <div class="property">
+                    Hoogte
+                    <input id="height-input" type="number" min="10">
+                </div>
+                <div class="property">
+                    X positie
+                    <input id="x-input" type="number">
+                </div>
+                <div class="property">
+                    Y positie
+                    <input id="y-input" type="number">
+                </div>
+                <div class="property">
+                    z-index
+                    <input id="element-zindex" type="number">
+                </div>
+                <div class="property">
+                    Border radius
+                    <input id="radius-input" type="number" min="0">
+                </div>
+                <div class="property">
+                    Kleur
+                    <input id="color-input" type="color">
+                </div>
+
+                <div id="button-properties" hidden>
+                    <hr>
+                    <h3>ACTIE</h3>
+                    <div class="property">
+                        Actie
+                        <select id="action-type">
+                            <option value="none">Geen actie</option>
+                            <option value="give-money">Give money</option>
+                        </select>
+                    </div>
+                    <div class="property" id="money-property" hidden>
+                        Hoeveelheid geld
+                        <input id="money-amount" type="number" min="0" value="100">
+                    </div>
+                    <div class="property">
+                        Knoptekst
+                        <input id="button-text" type="text" value="Button">
+                    </div>
+                </div>
+
+                <div id="text-properties" hidden>
+                    <hr>
+                    <h3>Tekst instellingen</h3>
+                    <div class="property">
+                        Tekst
+                        <textarea id="text-content" rows="3"></textarea>
+                    </div>
+                    <div class="property">
+                        Tekstkleur
+                        <input id="text-color" type="color" value="#ffffff">
+                    </div>
+                    <div class="property">
+                        Lettergrootte
+                        <input id="text-size" type="number" min="1" max="200" value="24">
+                    </div>
+                </div>
+
+                <hr>
+                <div class="property">
+                    Uitlijnen
+                    <button id="align-x">Midden X-as</button>
+                    <button id="align-y">Midden Y-as</button>
+                </div>
+                <button id="delete-element" class="delete-button">Verwijder element</button>
+            </div>
+        </aside>
+    </div>
+    <script type="module" src="ui.js"></script>
+</body>
+</html>

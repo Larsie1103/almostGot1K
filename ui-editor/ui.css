@@ -1,0 +1,284 @@
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #181818;
+    color: white;
+    overflow: hidden;
+}
+
+/* TOPBAR */
+
+#topbar {
+    height: 55px;
+    background: #252525;
+    border-bottom: 1px solid #383838;
+    display: flex;
+    align-items: center;
+    padding: 0 15px;
+    gap: 15px;
+}
+
+#topbar h2 {
+    font-size: 17px;
+    margin: 0;
+}
+
+#back-button {
+    background: #444;
+    color: white;
+    border: none;
+    padding: 9px 14px;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+.top-setting {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12px;
+    color: #aaa;
+}
+
+.top-setting input {
+    width: 110px;
+    padding: 7px;
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+}
+
+#ui-shortcut {
+    width: 40px !important;
+    text-align: center;
+    text-transform: uppercase;
+}
+
+#save-status {
+    margin-left: auto;
+    color: #8cce91;
+    font-size: 12px;
+}
+
+/* LAYOUT */
+
+#main {
+    display: flex;
+    height: calc(100vh - 55px);
+}
+
+/* SIDEBAR */
+
+#sidebar {
+    width: 190px;
+    min-width: 190px;
+    background: #222;
+    border-right: 1px solid #383838;
+    padding: 15px;
+}
+
+#sidebar h3,
+#right-panel h3 {
+    font-size: 14px;
+    color: #aaa;
+    margin-top: 0;
+}
+
+.tool-item {
+    background: #333;
+    border: 1px solid #484848;
+    border-radius: 6px;
+    padding: 14px;
+    margin-bottom: 10px;
+    cursor: grab;
+    user-select: none;
+    text-align: center;
+}
+
+.tool-item:hover {
+    background: #414141;
+}
+
+.tool-preview {
+    width: 35px;
+    height: 35px;
+    background: #4287f5;
+    border: 1px solid #75aaff;
+    margin: 0 auto 8px;
+}
+
+.button-preview {
+    background: #4287f5;
+    padding: 10px;
+    margin-bottom: 8px;
+    border-radius: 5px;
+}
+
+/* WORKSPACE */
+
+#workspace-area {
+    flex: 1;
+    position: relative;
+    overflow: auto;
+    background: #191919;
+    padding: 40px;
+}
+
+#workspace {
+    width: 900px;
+    height: 600px;
+    position: relative;
+    background-color: #242424;
+    background-image:
+        linear-gradient(#353535 1px, transparent 1px),
+        linear-gradient(90deg, #353535 1px, transparent 1px);
+    background-size: 20px 20px;
+    border: 1px solid #555;
+    margin: 0 auto;
+}
+
+#workspace-label {
+    position: absolute;
+    top: -25px;
+    left: 0;
+    color: #888;
+    font-size: 12px;
+}
+
+/* OBJECTEN */
+
+.ui-object {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    background: #4287f5;
+    border: 2px solid #75aaff;
+    cursor: move;
+    user-select: none;
+}
+
+.ui-button-element {
+    color: white;
+    border: 1px solid #75aaff;
+    cursor: move;
+    font-size: 14px;
+}
+
+.ui-object.selected {
+    outline: 1px solid #75aaff;
+}
+
+/* HANDLES */
+
+.handle {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: white;
+    border: 2px solid #4287f5;
+    border-radius: 50%;
+    z-index: 10;
+}
+
+.handle.tl {
+    top: -7px;
+    left: -7px;
+    cursor: nwse-resize;
+}
+
+.handle.tr {
+    top: -7px;
+    right: -7px;
+    cursor: nesw-resize;
+}
+
+.handle.bl {
+    bottom: -7px;
+    left: -7px;
+    cursor: nesw-resize;
+}
+
+.handle.br {
+    bottom: -7px;
+    right: -7px;
+    cursor: nwse-resize;
+}
+
+/* RIGHT PANEL */
+
+#right-panel {
+    width: 230px;
+    min-width: 230px;
+    background: #222;
+    border-left: 1px solid #383838;
+    padding: 15px;
+    overflow-y: auto;
+}
+
+.property {
+    margin-bottom: 12px;
+    font-size: 12px;
+    color: #aaa;
+}
+
+
+.property input,
+.property select,
+.property textarea {
+    display: block;
+    width: 100%;
+    margin-top: 5px;
+    padding: 7px;
+    background: #333;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-family: Arial, sans-serif;
+    font-size: 13px;
+}
+
+.property textarea {
+    min-height: 75px;
+    resize: vertical;
+    line-height: 1.5;
+}
+
+#right-panel button {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    background: #383838;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+#right-panel button:hover {
+    background: #505050;
+}
+
+#color-input {
+    height: 35px;
+    cursor: pointer;
+}
+
+#empty-selection {
+    color: #777;
+    font-size: 13px;
+}
+
+.delete-button {
+    background: #7d2929 !important;
+    border-color: #a33 !important;
+}
+
+.delete-button:hover {
+    background: #a33 !important;
+}

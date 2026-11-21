@@ -1,4 +1,3 @@
-
 // ============================================
 // TYCOON MAKER - PLAY.JS
 // VOLLEDIGE LOSSE PLAY MODE
@@ -9,14 +8,190 @@ const moneyDisplay = document.getElementById("money-display");
 const exitButton = document.getElementById("exit-button");
 
 const engine = new BABYLON.Engine(canvas, true, {
-    preserveDrawingBuffer: true,
-    stencil: true
+  preserveDrawingBuffer: true,
+  stencil: true,
 });
 
 const params = new URLSearchParams(location.search);
 
 const projectId = params.get("id") || "local-default";
 const storageKey = "tycoon_" + projectId;
+
+// ============================================
+// CUSTOM UI SYSTEM
+// ============================================
+
+const uiStorageKey = "tycoon_ui_menus_" + projectId;
+
+let savedUIMenus = [];
+
+let activeUIMenu = null;
+let uiVisible = false;
+
+const gameUI = document.createElement("div");
+
+gameUI.id = "game-ui";
+
+gameUI.style.cssText = `
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    pointer-events: none;
+    display: none;
+    overflow: hidden;
+`;
+
+document.body.appendChild(gameUI);
+
+// UI's laden
+function loadGameUIs() {
+    try {
+        const parsed = JSON.parse(
+            localStorage.getItem(uiStorageKey) || "[]"
+        );
+
+        savedUIMenus = Array.isArray(parsed) ? parsed : [];
+
+    } catch (error) {
+        console.error("UI's laden mislukt:", error);
+        savedUIMenus = [];
+    }
+}
+
+// UI tonen of verbergen
+
+
+function toggleGameUI(menu) {
+    if (
+        uiVisible &&
+        String(activeUIMenu?.id) === String(menu.id)
+    ) {
+        gameUI.style.display = "none";
+        gameUI.innerHTML = "";
+
+        uiVisible = false;
+        activeUIMenu = null;
+        return;
+    }
+
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+
+    gameUI.innerHTML = "";
+
+    activeUIMenu = menu;
+    uiVisible = true;
+    gameUI.style.display = "block";
+
+    (menu.elements || []).forEach(data => {
+        const type = data.type || "cube";
+
+        const element = document.createElement(
+            type === "button" ? "button" : "div"
+        );
+
+        element.style.position = "absolute";
+        element.style.pointerEvents = "auto";
+        element.style.boxSizing = "border-box";
+
+        element.style.left = data.x + "px";
+        element.style.top = data.y + "px";
+
+        element.style.width = data.width + "px";
+        element.style.height = data.height + "px";
+
+        element.style.borderRadius = (data.radius || 0) + "px";
+        element.style.zIndex = data.zIndex ?? 0;
+
+        element.style.fontFamily = "Arial, sans-serif";
+
+        // ACHTERGRONDKLEUR VOOR ALLE ELEMENTEN
+        element.style.backgroundColor =
+            data.color || (type === "text" ? "transparent" : "#4287f5");
+
+        // NORMALE TEKST
+        if (type === "text") {
+            element.textContent = data.text || "Nieuwe tekst";
+
+            element.style.color = data.textColor || "#ffffff";
+            element.style.fontSize = (data.fontSize || 24) + "px";
+
+            element.style.display = "flex";
+            element.style.alignItems = "center";
+            element.style.justifyContent = "center";
+            element.style.textAlign = "center";
+            element.style.whiteSpace = "pre-wrap";
+
+            element.style.border = "none";
+        }
+
+        // UI-KNOP
+        else if (type === "button") {
+            element.textContent = data.text || "Button";
+
+            element.style.color = "#ffffff";
+            element.style.border = "none";
+            element.style.cursor = "pointer";
+
+            element.addEventListener("click", event => {
+                event.preventDefault();
+                event.stopPropagation();
+
+                if (data.action === "give-money") {
+                    money += Math.max(0, Number(data.amount) || 0);
+                    updateMoneyDisplay();
+
+                    console.log("UI-knop gebruikt! Geld:", money);
+                }
+            });
+        }
+
+        // KUBUS
+        else if (type === "cube") {
+            element.style.border = "none";
+        }
+
+        gameUI.appendChild(element);
+    });
+}
+
+// Sneltoetsen
+window.addEventListener("keydown", (event) => {
+  if (event.repeat) return;
+
+  if (["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName))
+    return;
+
+  const pressedKey = event.key.toLowerCase();
+
+  const menu = savedUIMenus.find(
+    (item) => item.shortcut && item.shortcut.toLowerCase() === pressedKey,
+  );
+
+  if (!menu) return;
+
+  event.preventDefault();
+
+  toggleGameUI(menu);
+});
+
+function closeGameUI() {
+  if (!uiVisible) return;
+
+  gameUI.style.display = "none";
+  gameUI.innerHTML = "";
+
+  uiVisible = false;
+  activeUIMenu = null;
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && uiVisible) {
+    event.preventDefault();
+    closeGameUI();
+  }
+});
 
 // ============================================
 // VARIABELEN
@@ -48,6 +223,7 @@ const mouseSensitivity = 0.0015;
 
 const keys = {};
 const tycoonButtons = [];
+const placeableButtons = [];
 const objectLibrary = {};
 const spawnedObjects = [];
 
@@ -59,39 +235,31 @@ let incomeDisplayTimer = 0;
 // ============================================
 
 const freeObjectDB = new Promise((resolve, reject) => {
+  const request = indexedDB.open("TycoonMakerAssets", 1);
 
-    const request = indexedDB.open("TycoonMakerAssets", 1);
+  request.onupgradeneeded = () => {
+    const db = request.result;
 
-    request.onupgradeneeded = () => {
+    if (!db.objectStoreNames.contains("models")) {
+      db.createObjectStore("models");
+    }
+  };
 
-        const db = request.result;
-
-        if (!db.objectStoreNames.contains("models")) {
-            db.createObjectStore("models");
-        }
-
-    };
-
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-
+  request.onsuccess = () => resolve(request.result);
+  request.onerror = () => reject(request.error);
 });
 
 async function getFreeObject(key) {
+  const db = await freeObjectDB;
 
-    const db = await freeObjectDB;
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("models", "readonly");
 
-    return new Promise((resolve, reject) => {
+    const request = transaction.objectStore("models").get(key);
 
-        const transaction = db.transaction("models", "readonly");
-
-        const request = transaction.objectStore("models").get(key);
-
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-
-    });
-
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }
 
 // ============================================
@@ -99,13 +267,9 @@ async function getFreeObject(key) {
 // ============================================
 
 function updateMoneyDisplay() {
+  const displayValue = Math.floor(money);
 
-    const displayValue = Math.floor(money);
-
-    moneyDisplay.textContent =
-        "💰 Geld: " +
-        displayValue.toLocaleString("nl-NL");
-
+  moneyDisplay.textContent = "💰 Geld: " + displayValue.toLocaleString("nl-NL");
 }
 
 // ============================================
@@ -113,134 +277,116 @@ function updateMoneyDisplay() {
 // ============================================
 
 async function createScene() {
+  scene = new BABYLON.Scene(engine);
 
-    scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color4(0.12, 0.12, 0.12, 1);
 
-    scene.clearColor = new BABYLON.Color4(
-        0.12,
-        0.12,
-        0.12,
-        1
+  scene.collisionsEnabled = true;
+
+  // Licht
+
+  const hemi = new BABYLON.HemisphericLight(
+    "hemi",
+    new BABYLON.Vector3(0, 1, 0),
+    scene,
+  );
+
+  hemi.intensity = 0.85;
+
+  // Vloer
+
+  const floor = BABYLON.MeshBuilder.CreateGround(
+    "floor",
+    {
+      width: 100,
+      height: 100,
+    },
+    scene,
+  );
+
+  const floorMaterial = new BABYLON.StandardMaterial("floorMaterial", scene);
+
+  floorMaterial.diffuseColor = new BABYLON.Color3(0.25, 0.25, 0.28);
+
+  floor.material = floorMaterial;
+
+  // Camera
+
+  camera = new BABYLON.FreeCamera(
+    "playCamera",
+    new BABYLON.Vector3(0, 3, -12),
+    scene,
+  );
+
+  camera.minZ = 0.1;
+
+  // Speler
+
+  try {
+    const result = await BABYLON.SceneLoader.ImportMeshAsync(
+      "",
+      "../models/",
+      "character.glb",
+      scene,
     );
 
-    scene.collisionsEnabled = true;
+    player = result.meshes[0];
 
-    // Licht
+    player.name = "playerRoot";
 
-    const hemi = new BABYLON.HemisphericLight(
-        "hemi",
-        new BABYLON.Vector3(0, 1, 0),
-        scene
+    player.scaling.setAll(1);
+
+    player.position.set(0, 0, -6);
+
+    player.computeWorldMatrix(true);
+
+    const bounds = player.getHierarchyBoundingVectors(true);
+
+    player.position.y -= bounds.min.y;
+
+    player.rotationQuaternion = null;
+
+    player.animationGroups = result.animationGroups || [];
+
+    player.animationGroups.forEach((animation) => {
+      animation.stop();
+    });
+  } catch (error) {
+    console.warn(
+      "character.glb niet gevonden. Fallback capsule gebruikt.",
+      error,
     );
 
-    hemi.intensity = 0.85;
-
-    // Vloer
-
-    const floor = BABYLON.MeshBuilder.CreateGround(
-        "floor",
-        {
-            width: 100,
-            height: 100
-        },
-        scene
+    player = BABYLON.MeshBuilder.CreateCapsule(
+      "player",
+      {
+        height: 1.8,
+        radius: 0.35,
+      },
+      scene,
     );
 
-    const floorMaterial = new BABYLON.StandardMaterial(
-        "floorMaterial",
-        scene
-    );
+    player.position.set(0, 0.9, -6);
 
-    floorMaterial.diffuseColor =
-        new BABYLON.Color3(0.25, 0.25, 0.28);
+    const material = new BABYLON.StandardMaterial("playerMaterial", scene);
 
-    floor.material = floorMaterial;
+    material.diffuseColor = new BABYLON.Color3(0.2, 0.6, 1);
 
-    // Camera
+    player.material = material;
+  }
 
-    camera = new BABYLON.FreeCamera(
-        "playCamera",
-        new BABYLON.Vector3(0, 3, -12),
-        scene
-    );
+  player.setEnabled(true);
 
-    camera.minZ = 0.1;
+  // Collision ellipsoid voor de speler
+  player.ellipsoid = new BABYLON.Vector3(0.4, 0.9, 0.4);
+  player.ellipsoidOffset = new BABYLON.Vector3(0, 0.9, 0);
+  player.checkCollisions = true;
 
-    // Speler
+  jumpBaseY = player.position.y;
 
-    try {
+  // Camera direct achter speler zetten
 
-        const result = await BABYLON.SceneLoader.ImportMeshAsync(
-            "",
-            "../models/",
-            "character.glb",
-            scene
-        );
-
-        player = result.meshes[0];
-
-        player.name = "playerRoot";
-
-        player.scaling.setAll(1);
-
-        player.position.set(0, 0, -6);
-
-        player.computeWorldMatrix(true);
-
-        const bounds = player.getHierarchyBoundingVectors(true);
-
-        player.position.y -= bounds.min.y;
-
-        player.rotationQuaternion = null;
-
-        player.animationGroups = result.animationGroups || [];
-
-        player.animationGroups.forEach(animation => {
-            animation.stop();
-        });
-
-    } catch (error) {
-
-        console.warn(
-            "character.glb niet gevonden. Fallback capsule gebruikt.",
-            error
-        );
-
-        player = BABYLON.MeshBuilder.CreateCapsule(
-            "player",
-            {
-                height: 1.8,
-                radius: 0.35
-            },
-            scene
-        );
-
-        player.position.set(0, 0.9, -6);
-
-        const material = new BABYLON.StandardMaterial(
-            "playerMaterial",
-            scene
-        );
-
-        material.diffuseColor =
-            new BABYLON.Color3(0.2, 0.6, 1);
-
-        player.material = material;
-    }
-
-    player.setEnabled(true);
-
-    // Collision ellipsoid voor de speler
-    player.ellipsoid = new BABYLON.Vector3(0.4, 0.9, 0.4);
-    player.ellipsoidOffset = new BABYLON.Vector3(0, 0.9, 0);
-    player.checkCollisions = true;
-
-    jumpBaseY = player.position.y;
-
-    // Camera direct achter speler zetten
-
-    resetCamera();
-
+  resetCamera();
 }
 
 // ============================================
@@ -248,107 +394,140 @@ async function createScene() {
 // ============================================
 
 function resetCamera() {
+  yaw = 0;
+  pitch = 0.18;
 
-    yaw = 0;
-    pitch = 0.18;
+  if (!player || !camera) return;
 
-    if (!player || !camera) return;
+  camera.position.set(
+    player.position.x,
+    player.position.y + 3,
+    player.position.z - 6,
+  );
 
-    camera.position.set(
-        player.position.x,
-        player.position.y + 3,
-        player.position.z - 6
-    );
-
-    camera.setTarget(
-        player.position.add(
-            new BABYLON.Vector3(0, 1, 0)
-        )
-    );
-
+  camera.setTarget(player.position.add(new BABYLON.Vector3(0, 1, 0)));
 }
 
-canvas.addEventListener("mousemove", e => {
+canvas.addEventListener("mousemove", (e) => {
+  if (document.pointerLockElement !== canvas) return;
 
-    if (document.pointerLockElement !== canvas) return;
+  yaw += e.movementX * mouseSensitivity;
 
-    yaw += e.movementX * mouseSensitivity;
+  pitch -= e.movementY * mouseSensitivity;
 
-    pitch -= e.movementY * mouseSensitivity;
-
-    pitch = Math.max(
-        -0.45,
-        Math.min(0.85, pitch)
-    );
-
+  pitch = Math.max(-0.45, Math.min(0.85, pitch));
 });
 
 canvas.addEventListener("click", () => {
-
-    if (document.pointerLockElement !== canvas) {
-        canvas.requestPointerLock();
-    }
-
+  if (!uiVisible && document.pointerLockElement !== canvas) {
+    canvas.requestPointerLock();
+  }
 });
 
 // ============================================
 // KEYBOARD
 // ============================================
 
-window.addEventListener("keydown", e => {
+window.addEventListener("keydown", (e) => {
+  keys[e.key.toLowerCase()] = true;
 
-    keys[e.key.toLowerCase()] = true;
-
-    if (e.code === "Space") {
-        keys.space = true;
-    }
-
+  if (e.code === "Space") {
+    keys.space = true;
+  }
 });
 
-window.addEventListener("keyup", e => {
+window.addEventListener("keyup", (e) => {
+  keys[e.key.toLowerCase()] = false;
 
-    keys[e.key.toLowerCase()] = false;
-
-    if (e.code === "Space") {
-        keys.space = false;
-    }
-
+  if (e.code === "Space") {
+    keys.space = false;
+  }
 });
 
 // Voorkom dat de pagina scrollt tijdens spelen
 
-window.addEventListener("keydown", e => {
-
-    if (
-        ["Space", "ArrowUp", "ArrowDown"].includes(e.code)
-    ) {
-        e.preventDefault();
-    }
-
+window.addEventListener("keydown", (e) => {
+  if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) {
+    e.preventDefault();
+  }
 });
 
 // ============================================
 // TYCOON KNOPPEN
 // ============================================
 
+// ============================================
+// ZWEVEND BUTTON DISPLAY
+// ============================================
 
-function createTycoonButton(data) {
+function createButtonDisplay(button) {
+  const plane = BABYLON.MeshBuilder.CreatePlane(
+    "buttonDisplay",
+    {
+      width: 2.5,
+      height: 0.85,
+    },
+    scene,
+  );
+
+  plane.isPickable = false;
+
+  // Zweeft boven de knop
+  plane.parent = button;
+  plane.position.set(0, 1.25, 0);
+
+  // Draait altijd naar de camera
+  plane.billboardMode = BABYLON.Mesh.BILLBOARDMODE_ALL;
+
+  const texture = new BABYLON.DynamicTexture(
+    "buttonDisplayTexture",
+    {
+      width: 512,
+      height: 180,
+    },
+    scene,
+    true,
+  );
+
+  texture.hasAlpha = true;
+
+  const material = new BABYLON.StandardMaterial("buttonDisplayMaterial", scene);
+
+  material.diffuseTexture = texture;
+  material.opacityTexture = texture;
+  material.emissiveColor = new BABYLON.Color3(1, 1, 1);
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+
+  plane.material = material;
+
+  button.metadata.displayPlane = plane;
+  button.metadata.displayTexture = texture;
+
+  updateButtonDisplay(button);
+}
+
+
+// ============================================
+// PLACEABLE BUTTONS
+// ============================================
+
+function createPlaceableButton(data) {
 
     const btn = BABYLON.MeshBuilder.CreateCylinder(
-        "tycoonButton",
+        "placeableButton",
         {
             diameter: 1.2,
-            height: 0.12,
+            height: 0.16,
             tessellation: 64
         },
         scene
     );
 
     btn.position = BABYLON.Vector3.FromArray(
-        data.pos || [0, 0, 0]
+        data.pos || [0, 0.08, 0]
     );
 
-    // Ook de opgeslagen draaiing en schaal herstellen
     btn.rotation = BABYLON.Vector3.FromArray(
         data.rotation || [0, 0, 0]
     );
@@ -357,71 +536,85 @@ function createTycoonButton(data) {
         data.scaling || [1, 1, 1]
     );
 
+    btn.isPickable = true;
+
     btn.metadata = {
-        ...data
+        ...data,
+        isPlaceableButton: true
     };
 
     const material = new BABYLON.StandardMaterial(
-        "buttonMaterial_" + Math.random(),
+        "placeableMaterial_" + Math.random(),
         scene
     );
 
     material.diffuseColor =
-        new BABYLON.Color3(0.15, 0.75, 0.25);
+        new BABYLON.Color3(0.35, 0.25, 0.85);
 
     material.emissiveColor =
-        new BABYLON.Color3(0.05, 0.15, 0.05);
+        new BABYLON.Color3(0.12, 0.06, 0.3);
 
     btn.material = material;
 
     const ring = BABYLON.MeshBuilder.CreateTorus(
-        "buttonRing",
+        "placeableRing",
         {
             diameter: 1.05,
-            thickness: 0.035,
+            thickness: 0.04,
             tessellation: 64
         },
         scene
     );
 
     ring.parent = btn;
-    ring.position.y = 0.07;
+    ring.position.y = 0.09;
+    ring.isPickable = true;
+
+    ring.metadata = {
+        isPlaceableButtonPart: true
+    };
 
     const ringMaterial = new BABYLON.StandardMaterial(
-        "ringMaterial",
+        "placeableRingMaterial",
         scene
     );
 
     ringMaterial.diffuseColor =
-        new BABYLON.Color3(0.95, 0.95, 0.95);
+        new BABYLON.Color3(1, 1, 1);
 
     ring.material = ringMaterial;
 
-    btn.metadata.bought = false;
-    btn.metadata.forceShow = false;
+    // Free = direct zichtbaar
+    // Linked = wachten op aankoop
 
-    tycoonButtons.push(btn);
+    btn.setEnabled(data.spawnMode !== "linked");
+
+    placeableButtons.push(btn);
 
     return btn;
-
 }
 
+
 // ============================================
-// OBJECTEN LADEN
+// LINKED BUTTONS SPAWNEN
 // ============================================
 
+function showLinkedPlaceableButtons(buttonID) {
 
-function attachImportedModelHierarchy(root, result) {
+    placeableButtons.forEach(btn => {
 
-    const importedNodes = new Set([
-        ...(result.transformNodes || []),
-        ...(result.meshes || [])
-    ]);
+        if (
+            btn.metadata.spawnMode === "linked" &&
+            btn.metadata.linkedButtonID === buttonID
+        ) {
 
-    importedNodes.forEach(node => {
+            btn.setEnabled(true);
 
-        if (!node.parent || !importedNodes.has(node.parent)) {
-            node.parent = root;
+            console.log(
+                "Linked UI Button verschenen:",
+                btn.metadata.buttonID
+            );
+
         }
 
     });
@@ -429,82 +622,262 @@ function attachImportedModelHierarchy(root, result) {
 }
 
 
-async function loadButtonAssets() {
+// ============================================
+// DISPLAY TEKST BIJWERKEN
+// ============================================
 
-    for (const button of tycoonButtons) {
+function updateButtonDisplay(button) {
+  if (!button.metadata.displayTexture) return;
 
-        const objects = button.metadata.objects || [];
+  const texture = button.metadata.displayTexture;
+  const ctx = texture.getContext();
 
-        for (const obj of objects) {
+  const width = 512;
+  const height = 180;
 
-            if (!obj.fileKey) {
-                console.warn(
-                    "Geen fileKey gevonden voor object:",
-                    obj.id
-                );
-                continue;
-            }
+  const price = Math.max(0, Number(button.metadata.price) || 0);
 
-            try {
+  const canAfford = money >= price;
 
-                const file = await getFreeObject(obj.fileKey);
+  const buttonName = button.metadata.buttonID || "Button";
 
-                if (!file) {
-                    console.warn("Modelbestand niet gevonden:", obj.id);
-                    continue;
-                }
+  ctx.clearRect(0, 0, width, height);
 
-                const url = URL.createObjectURL(file);
+  // Achtergrond
+  ctx.fillStyle = "rgba(15, 20, 30, 0.94)";
+  ctx.beginPath();
+  ctx.roundRect(8, 8, 496, 164, 28);
+  ctx.fill();
 
-                try {
+  // Rand
+  ctx.strokeStyle = "#55d6be";
+  ctx.lineWidth = 5;
+  ctx.stroke();
 
-                    const extension = "." +
-                        file.name.split(".").pop().toLowerCase();
+  // ButtonID
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
 
-                    const result = await BABYLON.SceneLoader.ImportMeshAsync(
-                        "",
-                        url,
-                        "",
-                        scene,
-                        undefined,
-                        extension
-                    );
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "700 43px Comfortaa, sans-serif";
 
-                    const root = new BABYLON.TransformNode(
-                        "asset_" + obj.id,
-                        scene
-                    );
+  ctx.fillText(buttonName, width / 2, 62, 460);
 
-                    // Volledige GLB-hiërarchie behouden
-                    attachImportedModelHierarchy(root, result);
+  // Prijs
+  ctx.fillStyle = canAfford ? "#75f0a0" : "#ff6565";
 
-                    root.setEnabled(false);
+  ctx.font = "700 37px Comfortaa, sans-serif";
 
-                    objectLibrary[obj.id] = {
-                        mesh: root,
-                        animationGroups: result.animationGroups || []
-                    };
+  ctx.fillText("€ " + price.toLocaleString("nl-NL"), width / 2, 125);
 
-                } finally {
+  texture.update();
+}
 
-                    URL.revokeObjectURL(url);
+// ============================================
+// DISPLAY ZICHTBAARHEID
+// ============================================
 
-                }
+function updateButtonDisplayVisibility(button) {
+  const plane = button.metadata.displayPlane;
 
-            } catch (error) {
+  if (!plane) return;
 
-                console.error(
-                    "Object kon niet geladen worden:",
-                    obj.id,
-                    error
-                );
+  plane.setEnabled(button.isEnabled() && !button.metadata.bought);
+}
 
-            }
+function createTycoonButton(data) {
+  const btn = BABYLON.MeshBuilder.CreateCylinder(
+    "tycoonButton",
+    {
+      diameter: 1.2,
+      height: 0.12,
+      tessellation: 64,
+    },
+    scene,
+  );
 
-        }
+  btn.position = BABYLON.Vector3.FromArray(data.pos || [0, 0, 0]);
+  btn.rotation = BABYLON.Vector3.FromArray(data.rotation || [0, 0, 0]);
+  btn.scaling = BABYLON.Vector3.FromArray(data.scaling || [1, 1, 1]);
 
+  btn.metadata = {
+    ...data,
+    isTycoonButton: true,
+    bought: false,
+    forceShow: false,
+  };
+
+  const material = new BABYLON.StandardMaterial(
+    "buttonMaterial_" + Math.random(),
+    scene,
+  );
+
+  material.diffuseColor = new BABYLON.Color3(0.15, 0.75, 0.25);
+  material.emissiveColor = new BABYLON.Color3(0.05, 0.15, 0.05);
+  btn.material = material;
+
+  const ring = BABYLON.MeshBuilder.CreateTorus(
+    "buttonRing",
+    {
+      diameter: 1.05,
+      thickness: 0.035,
+      tessellation: 64,
+    },
+    scene,
+  );
+
+  ring.parent = btn;
+  ring.position.y = 0.07;
+  ring.isPickable = true;
+  ring.metadata = { isTycoonButtonPart: true };
+
+  const ringMaterial = new BABYLON.StandardMaterial("ringMaterial", scene);
+  ringMaterial.diffuseColor = new BABYLON.Color3(0.95, 0.95, 0.95);
+  ring.material = ringMaterial;
+
+  tycoonButtons.push(btn);
+  createButtonDisplay(btn);
+
+  return btn;
+}
+
+function getInteractionButton(mesh) {
+  let current = mesh;
+
+  while (current) {
+    if (
+      current.metadata?.isTycoonButton ||
+      current.metadata?.isPlaceableButton
+    ) {
+      return current;
     }
 
+    current = current.parent;
+  }
+
+  return null;
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.button !== 0 || uiVisible || !scene || !camera) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const locked = document.pointerLockElement === canvas;
+
+  const x = locked
+    ? engine.getRenderWidth() / 2
+    : event.clientX - rect.left;
+
+  const y = locked
+    ? engine.getRenderHeight() / 2
+    : event.clientY - rect.top;
+
+  const pick = scene.pick(
+    x,
+    y,
+    (mesh) => !!getInteractionButton(mesh),
+    false,
+    camera,
+  );
+
+  if (!pick?.hit || !pick.pickedMesh) return;
+
+  const button = getInteractionButton(pick.pickedMesh);
+
+  if (!button || !button.isEnabled()) return;
+
+  // Normale Tycoon Button: kopen
+  if (button.metadata.isTycoonButton) {
+    tryBuy(button);
+    return;
+  }
+
+  // Placeable Button: toegewezen UI openen
+  if (button.metadata.isPlaceableButton) {
+    const menu = savedUIMenus.find(
+      (item) => item.id === button.metadata.uiMenuId,
+    );
+
+    if (!menu) {
+      console.warn(
+        "Geen UI gekoppeld aan deze knop:",
+        button.metadata.buttonID,
+      );
+      return;
+    }
+
+    toggleGameUI(menu);
+  }
+});
+
+// ============================================
+// OBJECTEN LADEN
+// ============================================
+
+function attachImportedModelHierarchy(root, result) {
+  const importedNodes = new Set([
+    ...(result.transformNodes || []),
+    ...(result.meshes || []),
+  ]);
+
+  importedNodes.forEach((node) => {
+    if (!node.parent || !importedNodes.has(node.parent)) {
+      node.parent = root;
+    }
+  });
+}
+
+async function loadButtonAssets() {
+  for (const button of tycoonButtons) {
+    const objects = button.metadata.objects || [];
+
+    for (const obj of objects) {
+      if (!obj.fileKey) {
+        console.warn("Geen fileKey gevonden voor object:", obj.id);
+        continue;
+      }
+
+      try {
+        const file = await getFreeObject(obj.fileKey);
+
+        if (!file) {
+          console.warn("Modelbestand niet gevonden:", obj.id);
+          continue;
+        }
+
+        const url = URL.createObjectURL(file);
+
+        try {
+          const extension = "." + file.name.split(".").pop().toLowerCase();
+
+          const result = await BABYLON.SceneLoader.ImportMeshAsync(
+            "",
+            url,
+            "",
+            scene,
+            undefined,
+            extension,
+          );
+
+          const root = new BABYLON.TransformNode("asset_" + obj.id, scene);
+
+          // Volledige GLB-hiërarchie behouden
+          attachImportedModelHierarchy(root, result);
+
+          root.setEnabled(false);
+
+          objectLibrary[obj.id] = {
+            mesh: root,
+            animationGroups: result.animationGroups || [],
+          };
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      } catch (error) {
+        console.error("Object kon niet geladen worden:", obj.id, error);
+      }
+    }
+  }
 }
 
 // ============================================
@@ -512,79 +885,54 @@ async function loadButtonAssets() {
 // ============================================
 
 async function loadFreeObjects() {
+  for (const saved of projectData.freeObjects || []) {
+    if (!saved.fileKey) continue;
 
-    for (const saved of projectData.freeObjects || []) {
+    try {
+      const file = await getFreeObject(saved.fileKey);
 
-        if (!saved.fileKey) continue;
+      if (!file) {
+        console.warn("Vrij object niet gevonden:", saved.fileName);
+        continue;
+      }
 
-        try {
+      const url = URL.createObjectURL(file);
 
-            const file = await getFreeObject(saved.fileKey);
+      try {
+        const extension = "." + saved.fileName.split(".").pop().toLowerCase();
 
-            if (!file) {
-                console.warn("Vrij object niet gevonden:", saved.fileName);
-                continue;
-            }
+        const result = await BABYLON.SceneLoader.ImportMeshAsync(
+          "",
+          url,
+          "",
+          scene,
+          undefined,
+          extension,
+        );
 
-            const url = URL.createObjectURL(file);
+        const root = new BABYLON.TransformNode(
+          "freeObject_" + Date.now(),
+          scene,
+        );
 
-            try {
+        result.meshes.forEach((mesh) => {
+          if (!mesh.parent) {
+            mesh.parent = root;
+          }
+        });
 
-                const extension = "." +
-                    saved.fileName.split(".").pop().toLowerCase();
+        root.position = BABYLON.Vector3.FromArray(saved.position || [0, 0, 0]);
 
-                const result = await BABYLON.SceneLoader.ImportMeshAsync(
-                    "",
-                    url,
-                    "",
-                    scene,
-                    undefined,
-                    extension
-                );
+        root.rotation = BABYLON.Vector3.FromArray(saved.rotation || [0, 0, 0]);
 
-                const root = new BABYLON.TransformNode(
-                    "freeObject_" + Date.now(),
-                    scene
-                );
-
-                result.meshes.forEach(mesh => {
-
-                    if (!mesh.parent) {
-                        mesh.parent = root;
-                    }
-
-                });
-
-                root.position = BABYLON.Vector3.FromArray(
-                    saved.position || [0, 0, 0]
-                );
-
-                root.rotation = BABYLON.Vector3.FromArray(
-                    saved.rotation || [0, 0, 0]
-                );
-
-                root.scaling = BABYLON.Vector3.FromArray(
-                    saved.scaling || [1, 1, 1]
-                );
-
-            } finally {
-
-                URL.revokeObjectURL(url);
-
-            }
-
-        } catch (error) {
-
-            console.error(
-                "Vrij object laden mislukt:",
-                saved.fileName,
-                error
-            );
-
-        }
-
+        root.scaling = BABYLON.Vector3.FromArray(saved.scaling || [1, 1, 1]);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    } catch (error) {
+      console.error("Vrij object laden mislukt:", saved.fileName, error);
     }
-
+  }
 }
 
 // ============================================
@@ -592,66 +940,54 @@ async function loadFreeObjects() {
 // ============================================
 
 function spawnWithTransition(mesh, transition) {
+  mesh.setEnabled(true);
 
-    mesh.setEnabled(true);
+  if (transition === "from cave") {
+    const targetY = mesh.position.y;
 
-    if (transition === "from cave") {
+    mesh.position.y -= 3;
 
-        const targetY = mesh.position.y;
+    BABYLON.Animation.CreateAndStartAnimation(
+      "cave",
+      mesh,
+      "position.y",
+      30,
+      40,
+      mesh.position.y,
+      targetY,
+      0,
+    );
+  } else if (transition === "from heaven") {
+    const targetY = mesh.position.y;
 
-        mesh.position.y -= 3;
+    mesh.position.y += 4;
 
-        BABYLON.Animation.CreateAndStartAnimation(
-            "cave",
-            mesh,
-            "position.y",
-            30,
-            40,
-            mesh.position.y,
-            targetY,
-            0
-        );
+    BABYLON.Animation.CreateAndStartAnimation(
+      "heaven",
+      mesh,
+      "position.y",
+      30,
+      40,
+      mesh.position.y,
+      targetY,
+      0,
+    );
+  } else if (transition === "grow") {
+    const targetScale = mesh.scaling.clone();
 
-    }
+    mesh.scaling.setAll(0.01);
 
-    else if (transition === "from heaven") {
-
-        const targetY = mesh.position.y;
-
-        mesh.position.y += 4;
-
-        BABYLON.Animation.CreateAndStartAnimation(
-            "heaven",
-            mesh,
-            "position.y",
-            30,
-            40,
-            mesh.position.y,
-            targetY,
-            0
-        );
-
-    }
-
-    else if (transition === "grow") {
-
-        const targetScale = mesh.scaling.clone();
-
-        mesh.scaling.setAll(0.01);
-
-        BABYLON.Animation.CreateAndStartAnimation(
-            "grow",
-            mesh,
-            "scaling",
-            30,
-            30,
-            mesh.scaling.clone(),
-            targetScale,
-            0
-        );
-
-    }
-
+    BABYLON.Animation.CreateAndStartAnimation(
+      "grow",
+      mesh,
+      "scaling",
+      30,
+      30,
+      mesh.scaling.clone(),
+      targetScale,
+      0,
+    );
+  }
 }
 
 // ============================================
@@ -659,24 +995,18 @@ function spawnWithTransition(mesh, transition) {
 // ============================================
 
 function showCurrentPriority() {
+  tycoonButtons.forEach((btn) => {
+    const show =
+      !btn.metadata.bought &&
+      (Number(btn.metadata.priority || 0) === currentPriority ||
+        btn.metadata.forceShow);
 
-    tycoonButtons.forEach(btn => {
+    btn.setEnabled(show);
 
-        const show =
-            !btn.metadata.bought &&
-            (
-                Number(btn.metadata.priority || 0) === currentPriority ||
-                btn.metadata.forceShow
-            );
+    btn.metadata.forceShow = false;
+  });
 
-        btn.setEnabled(show);
-
-        btn.metadata.forceShow = false;
-
-    });
-
-    updateButtonColors();
-
+  updateButtonColors();
 }
 
 // ============================================
@@ -684,168 +1014,140 @@ function showCurrentPriority() {
 // ============================================
 
 function updateButtonColors() {
+  tycoonButtons.forEach((btn) => {
+    if (btn.metadata.bought) {
+      btn.setEnabled(false);
 
-    tycoonButtons.forEach(btn => {
+      updateButtonDisplayVisibility(btn);
 
-        if (btn.metadata.bought) {
-            btn.setEnabled(false);
-            return;
-        }
+      return;
+    }
 
-        const canAfford =
-            money >= Number(btn.metadata.price || 0);
+    const canAfford = money >= Number(btn.metadata.price || 0);
 
-        btn.material.diffuseColor = canAfford
-            ? new BABYLON.Color3(0.15, 0.75, 0.2)
-            : new BABYLON.Color3(0.85, 0.15, 0.15);
+    btn.material.diffuseColor = canAfford
+      ? new BABYLON.Color3(0.15, 0.75, 0.2)
+      : new BABYLON.Color3(0.85, 0.15, 0.15);
 
-    });
+    // Prijs en kleur van het display bijwerken
+    updateButtonDisplay(btn);
 
+    updateButtonDisplayVisibility(btn);
+  });
 }
 
 // ============================================
 // KOPEN
 // ============================================
 
-
 function tryBuy(button) {
+  if (!button || button.metadata.bought) return;
 
-    if (!button || button.metadata.bought) return;
+  const price = Math.max(0, Number(button.metadata.price) || 0);
 
-    const price = Math.max(
-        0,
-        Number(button.metadata.price) || 0
+  if (money < price) return;
+
+  money -= price;
+
+  button.metadata.bought = true;
+  button.setEnabled(false);
+  showLinkedPlaceableButtons(
+    button.metadata.buttonID
+  );
+
+  // Priority activator
+  if (button.metadata.isPriorityActivator) {
+    const target = parseInt(button.metadata.activatorTarget);
+
+    if (!isNaN(target)) {
+      const oldPriority = currentPriority;
+
+      currentPriority = target;
+      showCurrentPriority();
+      currentPriority = oldPriority;
+    }
+  }
+
+  // ID activator
+  if (button.metadata.isIDActivator && button.metadata.activatorTarget) {
+    const targetButton = tycoonButtons.find(
+      (btn) => btn.metadata.buttonID === button.metadata.activatorTarget,
     );
 
-    if (money < price) return;
+    if (targetButton) {
+      targetButton.metadata.forceShow = true;
+      targetButton.setEnabled(true);
 
-    money -= price;
+      updateButtonColors();
+    }
+  }
 
-    button.metadata.bought = true;
-    button.setEnabled(false);
+  // Objecten spawnen
+  (button.metadata.objects || []).forEach((obj, index) => {
+    const asset = objectLibrary[obj.id];
 
-    // Priority activator
-    if (button.metadata.isPriorityActivator) {
+    if (!asset || !asset.mesh) return;
 
-        const target = parseInt(
-            button.metadata.activatorTarget
-        );
+    const clone = asset.mesh.clone("spawn_" + Date.now() + "_" + index);
 
-        if (!isNaN(target)) {
+    if (!clone) return;
 
-            const oldPriority = currentPriority;
+    button.computeWorldMatrix(true);
 
-            currentPriority = target;
-            showCurrentPriority();
-            currentPriority = oldPriority;
+    const p = obj.pos || { x: 0, y: 0, z: 0 };
 
-        }
-
+    if (obj.positionSpace === "button-local") {
+      clone.position = BABYLON.Vector3.TransformCoordinates(
+        new BABYLON.Vector3(p.x, p.y, p.z),
+        button.getWorldMatrix(),
+      );
+    } else {
+      // Oude opgeslagen posities behouden
+      clone.position = button
+        .getAbsolutePosition()
+        .add(new BABYLON.Vector3(p.x, p.y, p.z));
     }
 
-    // ID activator
-    if (
-        button.metadata.isIDActivator &&
-        button.metadata.activatorTarget
-    ) {
+    clone.rotation = new BABYLON.Vector3(
+      obj.rot?.x || 0,
+      obj.rot?.y || 0,
+      obj.rot?.z || 0,
+    );
 
-        const targetButton = tycoonButtons.find(btn =>
-            btn.metadata.buttonID ===
-            button.metadata.activatorTarget
-        );
+    clone.scaling = new BABYLON.Vector3(
+      obj.scale?.x ?? 1,
+      obj.scale?.y ?? 1,
+      obj.scale?.z ?? 1,
+    );
 
-        if (targetButton) {
+    spawnWithTransition(clone, obj.transition || "None");
 
-            targetButton.metadata.forceShow = true;
-            targetButton.setEnabled(true);
-
-            updateButtonColors();
-
-        }
-
-    }
-
-    // Objecten spawnen
-    (button.metadata.objects || []).forEach((obj, index) => {
-
-        const asset = objectLibrary[obj.id];
-
-        if (!asset || !asset.mesh) return;
-
-        const clone = asset.mesh.clone(
-            "spawn_" + Date.now() + "_" + index
-        );
-
-        if (!clone) return;
-
-        button.computeWorldMatrix(true);
-
-        const p = obj.pos || { x: 0, y: 0, z: 0 };
-
-        if (obj.positionSpace === "button-local") {
-
-            clone.position = BABYLON.Vector3.TransformCoordinates(
-                new BABYLON.Vector3(p.x, p.y, p.z),
-                button.getWorldMatrix()
-            );
-
-        } else {
-
-            // Oude opgeslagen posities behouden
-            clone.position = button.getAbsolutePosition().add(
-                new BABYLON.Vector3(p.x, p.y, p.z)
-            );
-
-        }
-
-        clone.rotation = new BABYLON.Vector3(
-            obj.rot?.x || 0,
-            obj.rot?.y || 0,
-            obj.rot?.z || 0
-        );
-
-        clone.scaling = new BABYLON.Vector3(
-            obj.scale?.x ?? 1,
-            obj.scale?.y ?? 1,
-            obj.scale?.z ?? 1
-        );
-
-        spawnWithTransition(
-            clone,
-            obj.transition || "None"
-        );
-
-        // Collision aanzetten op alle meshes
-        clone.getChildMeshes(false).forEach(mesh => {
-            mesh.checkCollisions = true;
-        });
-
-        clone.checkCollisions = true;
-
-        spawnedObjects.push(clone);
-
+    // Collision aanzetten op alle meshes
+    clone.getChildMeshes(false).forEach((mesh) => {
+      mesh.checkCollisions = true;
     });
 
-    // Volgende priority
-    const remaining = tycoonButtons.some(btn =>
-        !btn.metadata.bought &&
-        (
-            Number(btn.metadata.priority || 0) === currentPriority ||
-            btn.metadata.forceShow
-        )
-    );
+    clone.checkCollisions = true;
 
-    if (!remaining) {
+    spawnedObjects.push(clone);
+  });
 
-        currentPriority++;
+  // Volgende priority
+  const remaining = tycoonButtons.some(
+    (btn) =>
+      !btn.metadata.bought &&
+      (Number(btn.metadata.priority || 0) === currentPriority ||
+        btn.metadata.forceShow),
+  );
 
-        showCurrentPriority();
+  if (!remaining) {
+    currentPriority++;
 
-    }
+    showCurrentPriority();
+  }
 
-    updateMoneyDisplay();
-    updateButtonColors();
-
+  updateMoneyDisplay();
+  updateButtonColors();
 }
 
 // ============================================
@@ -853,37 +1155,28 @@ function tryBuy(button) {
 // ============================================
 
 function updateIncome(delta) {
+  const totalIncome = tycoonButtons.reduce((total, btn) => {
+    if (!btn.metadata.bought) return total;
 
-    const totalIncome = tycoonButtons.reduce((total, btn) => {
+    return total + Math.max(0, Number(btn.metadata.incomePerSecond) || 0);
+  }, 0);
 
-        if (!btn.metadata.bought) return total;
+  if (totalIncome <= 0) return;
 
-        return total + Math.max(
-            0,
-            Number(btn.metadata.incomePerSecond) || 0
-        );
+  money += totalIncome * delta;
 
-    }, 0);
+  // Voorkom rare floating point ophoping
+  money = Math.round(money * 100) / 100;
 
-    if (totalIncome <= 0) return;
+  incomeDisplayTimer += delta;
 
-    money += totalIncome * delta;
+  if (incomeDisplayTimer >= 0.25) {
+    incomeDisplayTimer = 0;
 
-    // Voorkom rare floating point ophoping
-    money = Math.round(money * 100) / 100;
+    updateMoneyDisplay();
 
-    incomeDisplayTimer += delta;
-
-    if (incomeDisplayTimer >= 0.25) {
-
-        incomeDisplayTimer = 0;
-
-        updateMoneyDisplay();
-
-        updateButtonColors();
-
-    }
-
+    updateButtonColors();
+  }
 }
 
 // ============================================
@@ -891,166 +1184,110 @@ function updateIncome(delta) {
 // ============================================
 
 function updatePlayer(delta) {
+  if (!player) return;
 
-    if (!player) return;
+  // Springen
 
-    // Springen
+  if (keys.space && isGrounded) {
+    jumpVelocity = jumpPower;
 
-    if (keys.space && isGrounded) {
+    isGrounded = false;
+  }
 
-        jumpVelocity = jumpPower;
+  // Zwaartekracht
 
-        isGrounded = false;
+  if (!isGrounded) {
+    player.position.y += jumpVelocity * delta;
 
+    jumpVelocity -= gravity * delta;
+
+    if (player.position.y <= jumpBaseY) {
+      player.position.y = jumpBaseY;
+
+      jumpVelocity = 0;
+
+      isGrounded = true;
     }
+  }
 
-    // Zwaartekracht
+  // Bewegen
 
-    if (!isGrounded) {
+  const speed = keys.shift ? 9 : 4.5;
 
-        player.position.y += jumpVelocity * delta;
+  const forward = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
 
-        jumpVelocity -= gravity * delta;
+  const right = new BABYLON.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
 
-        if (player.position.y <= jumpBaseY) {
+  const movement = BABYLON.Vector3.Zero();
 
-            player.position.y = jumpBaseY;
+  if (keys.w) movement.addInPlace(forward);
+  if (keys.s) movement.subtractInPlace(forward);
 
-            jumpVelocity = 0;
+  if (keys.d) movement.addInPlace(right);
+  if (keys.a) movement.subtractInPlace(right);
 
-            isGrounded = true;
+  const moving = movement.lengthSquared() > 0.0001;
 
-        }
+  if (moving) {
+    movement.normalize();
 
+    const displacement = movement.scale(speed * delta);
+
+    // Collision-aware movement
+    player.moveWithCollisions(displacement);
+
+    player.rotation.y = Math.atan2(movement.x, movement.z);
+  }
+
+  // Animaties
+
+  if (player.animationGroups?.length) {
+    const idle =
+      player.animationGroups.find((a) =>
+        a.name.toLowerCase().includes("idle"),
+      ) || player.animationGroups[0];
+
+    const walk =
+      player.animationGroups.find((a) =>
+        a.name.toLowerCase().includes("walk"),
+      ) || idle;
+
+    const target = moving ? walk : idle;
+
+    if (currentAnim !== target) {
+      player.animationGroups.forEach((a) => a.stop());
+
+      target.start(true);
+
+      currentAnim = target;
     }
+  }
 
-    // Bewegen
+  // Camera
 
-    const speed = keys.shift ? 9 : 4.5;
+  const horizontalDistance = cameraDistance * Math.cos(pitch);
 
-    const forward = new BABYLON.Vector3(
-        Math.sin(yaw),
-        0,
-        Math.cos(yaw)
-    );
+  const verticalDistance = cameraHeight + cameraDistance * Math.sin(pitch);
 
-    const right = new BABYLON.Vector3(
-        Math.cos(yaw),
-        0,
-        -Math.sin(yaw)
-    );
+  const target = player.position.add(new BABYLON.Vector3(0, 1, 0));
 
-    const movement = BABYLON.Vector3.Zero();
+  const desiredPosition = new BABYLON.Vector3(
+    player.position.x - Math.sin(yaw) * horizontalDistance,
 
-    if (keys.w) movement.addInPlace(forward);
-    if (keys.s) movement.subtractInPlace(forward);
+    player.position.y + verticalDistance,
 
-    if (keys.d) movement.addInPlace(right);
-    if (keys.a) movement.subtractInPlace(right);
+    player.position.z - Math.cos(yaw) * horizontalDistance,
+  );
 
-    const moving = movement.lengthSquared() > 0.0001;
+  const smoothness = 1 - Math.pow(0.001, delta);
 
-    if (moving) {
+  camera.position = BABYLON.Vector3.Lerp(
+    camera.position,
+    desiredPosition,
+    smoothness,
+  );
 
-        movement.normalize();
-
-        const displacement = movement.scale(speed * delta);
-
-        // Collision-aware movement
-        player.moveWithCollisions(displacement);
-
-        player.rotation.y = Math.atan2(
-            movement.x,
-            movement.z
-        );
-
-    }
-
-    // Animaties
-
-    if (player.animationGroups?.length) {
-
-        const idle =
-            player.animationGroups.find(a =>
-                a.name.toLowerCase().includes("idle")
-            ) || player.animationGroups[0];
-
-        const walk =
-            player.animationGroups.find(a =>
-                a.name.toLowerCase().includes("walk")
-            ) || idle;
-
-        const target = moving ? walk : idle;
-
-        if (currentAnim !== target) {
-
-            player.animationGroups.forEach(a => a.stop());
-
-            target.start(true);
-
-            currentAnim = target;
-
-        }
-
-    }
-
-    // Camera
-
-    const horizontalDistance =
-        cameraDistance * Math.cos(pitch);
-
-    const verticalDistance =
-        cameraHeight + cameraDistance * Math.sin(pitch);
-
-    const target = player.position.add(
-        new BABYLON.Vector3(0, 1, 0)
-    );
-
-    const desiredPosition = new BABYLON.Vector3(
-        player.position.x -
-            Math.sin(yaw) * horizontalDistance,
-
-        player.position.y + verticalDistance,
-
-        player.position.z -
-            Math.cos(yaw) * horizontalDistance
-    );
-
-    const smoothness =
-        1 - Math.pow(0.001, delta);
-
-    camera.position = BABYLON.Vector3.Lerp(
-        camera.position,
-        desiredPosition,
-        smoothness
-    );
-
-    camera.setTarget(target);
-
-    // Kopen met E
-
-    if (keys.e && !lastBuyPressed) {
-
-        tycoonButtons.forEach(btn => {
-
-            if (
-                btn.isEnabled() &&
-                BABYLON.Vector3.Distance(
-                    player.position,
-                    btn.position
-                ) < 1.8
-            ) {
-
-                tryBuy(btn);
-
-            }
-
-        });
-
-    }
-
-    lastBuyPressed = keys.e;
-
+  camera.setTarget(target);
 }
 
 // ============================================
@@ -1058,24 +1295,17 @@ function updatePlayer(delta) {
 // ============================================
 
 function startRenderLoop() {
+  engine.runRenderLoop(() => {
+    if (!scene) return;
 
-    engine.runRenderLoop(() => {
+    const delta = Math.min(engine.getDeltaTime() / 1000, 0.05);
 
-        if (!scene) return;
+    updatePlayer(delta);
 
-        const delta = Math.min(
-            engine.getDeltaTime() / 1000,
-            0.05
-        );
+    updateIncome(delta);
 
-        updatePlayer(delta);
-
-        updateIncome(delta);
-
-        scene.render();
-
-    });
-
+    scene.render();
+  });
 }
 
 // ============================================
@@ -1083,62 +1313,48 @@ function startRenderLoop() {
 // ============================================
 
 async function loadProject() {
+  const raw = localStorage.getItem(storageKey);
 
-    const raw = localStorage.getItem(storageKey);
+  if (!raw) {
+    console.warn("Geen opgeslagen project gevonden:", storageKey);
 
-    if (!raw) {
+    return false;
+  }
 
-        console.warn(
-            "Geen opgeslagen project gevonden:",
-            storageKey
-        );
+  try {
+    projectData = JSON.parse(raw);
 
-        return false;
+    const savedBudget = Number(projectData.moneyStart);
 
-    }
+    money = Number.isFinite(savedBudget) ? Math.max(0, savedBudget) : 100;
 
-    try {
+    (projectData.buttons || []).forEach((data) => {
+      createTycoonButton(data);
+    });
 
-        projectData = JSON.parse(raw);
+    updateMoneyDisplay();
 
-        const savedBudget = Number(projectData.moneyStart);
+    await loadButtonAssets();
 
-        money = Number.isFinite(savedBudget)
-            ? Math.max(0, savedBudget)
-            : 100;
+    await loadFreeObjects();
 
-        (projectData.buttons || []).forEach(data => {
+    showCurrentPriority();
 
-            createTycoonButton(data);
+    console.log("Play project geladen:", projectId);
 
-        });
+    // Plaatsbare knoppen laden
+    (projectData.placeableButtons || []).forEach(data => {
 
-        updateMoneyDisplay();
+        createPlaceableButton(data);
 
-        await loadButtonAssets();
+    });
 
-        await loadFreeObjects();
+    return true;
+  } catch (error) {
+    console.error("Project laden mislukt:", error);
 
-        showCurrentPriority();
-
-        console.log(
-            "Play project geladen:",
-            projectId
-        );
-
-        return true;
-
-    } catch (error) {
-
-        console.error(
-            "Project laden mislukt:",
-            error
-        );
-
-        return false;
-
-    }
-
+    return false;
+  }
 }
 
 // ============================================
@@ -1146,15 +1362,11 @@ async function loadProject() {
 // ============================================
 
 exitButton.addEventListener("click", () => {
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
 
-    if (document.pointerLockElement) {
-        document.exitPointerLock();
-    }
-
-    window.location.href =
-        "../index.html?id=" +
-        encodeURIComponent(projectId);
-
+  window.location.href = "../index.html?id=" + encodeURIComponent(projectId);
 });
 
 // ============================================
@@ -1162,34 +1374,30 @@ exitButton.addEventListener("click", () => {
 // ============================================
 
 async function startGame() {
+  try {
+    await createScene();
 
-    try {
+    // Wachten tot Comfortaa beschikbaar is
+    await document.fonts.load("700 43px Comfortaa");
 
-        await createScene();
+    await loadProject();
 
-        await loadProject();
+    loadGameUIs();
 
-        showCurrentPriority();
+    showCurrentPriority();
 
-        updateMoneyDisplay();
+    updateMoneyDisplay();
 
-        startRenderLoop();
+    startRenderLoop();
 
-        console.log("TYCOON MAKER PLAY READY");
-
-    } catch (error) {
-
-        console.error(
-            "Play Mode starten mislukt:",
-            error
-        );
-
-    }
-
+    console.log("TYCOON MAKER PLAY READY");
+  } catch (error) {
+    console.error("Play Mode starten mislukt:", error);
+  }
 }
 
 window.addEventListener("resize", () => {
-    engine.resize();
+  engine.resize();
 });
 
 canvas.tabIndex = 1;
